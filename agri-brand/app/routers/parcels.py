@@ -8,8 +8,14 @@ from sqlalchemy.orm import Session
 
 from .. import config, geometry
 from ..db import get_db
-from ..models import Parcel, ProtectedAreaVersion
-from ..schemas import ParcelCreate, ParcelOut, ProtectedAreaOut, ValidateResponse
+from ..models import Parcel, ParcelCheck, ProtectedAreaVersion
+from ..schemas import (
+    CheckHistoryOut,
+    ParcelCreate,
+    ParcelOut,
+    ProtectedAreaOut,
+    ValidateResponse,
+)
 
 router = APIRouter(tags=["地块与保护区"])
 
@@ -80,6 +86,15 @@ def create_parcel(payload: ParcelCreate, db: Session = Depends(get_db)):
         shared_edge_m=r["shared_edge_m"],
     )
     db.add(parcel)
+    db.flush()
+    # 同步落一条核查历史（旧结论可回看）；快照字段即最新核查
+    db.add(ParcelCheck(
+        parcel_id=parcel.id, pa_version_id=pa.id,
+        status=r["status"], qualified=r["qualified"], reason=r["reason"],
+        total_area_sqm=r["total_area_sqm"], inside_area_sqm=r["inside_area_sqm"],
+        outside_area_sqm=r["outside_area_sqm"], outside_ratio=r["outside_ratio"],
+        centroid_inside=r["centroid_inside"], shared_edge_m=r["shared_edge_m"],
+    ))
     db.commit()
     db.refresh(parcel)
     return parcel
@@ -90,9 +105,43 @@ def list_parcels(db: Session = Depends(get_db)):
     return db.execute(select(Parcel).order_by(Parcel.code)).scalars().all()
 
 
-@router.get("/parcels/{parcel_id}", response_model=ParcelOut, summary="地块核查详情")
+@router.get("/parcels/{parcel_id}", response_model=ParcelOut, summary="地块核查详情（最新结论）")
 def get_parcel(parcel_id: int, db: Session = Depends(get_db)):
     parcel = db.get(Parcel, parcel_id)
     if parcel is None:
         raise HTTPException(404, "地块不存在")
     return parcel
+
+
+@router.get("/parcels/{parcel_id}/checks", response_model=list[CheckHistoryOut],
+            summary="地块核查历史（旧规则结论回看）")
+def parcel_checks(parcel_id: int, db: Session = Depends(get_db)):
+    if db.get(Parcel, parcel_id) is None:
+        raise HTTPException(404, "地块不存在")
+    return db.execute(
+        select(ParcelCheck).where(ParcelCheck.parcel_id == parcel_id)
+        .order_by(ParcelCheck.checked_at.desc(), ParcelCheck.id.desc())
+    ).scalars().all()
+
+
+@router.post("/parcels/{parcel_id}/recheck/{version_id}", response_model=CheckHistoryOut,
+             summary="按指定保护区版本重新核查（只新增历史，不覆盖旧结论）")
+def recheck_parcel(parcel_id: int, version_id: int, db: Session = Depends(get_db)):
+    from ..transitions import recheck_parcel as _recheck
+
+    parcel = db.get(Parcel, parcel_id)
+    if parcel is None:
+        raise HTTPException(404, "地块不存在")
+    version = db.get(ProtectedAreaVersion, version_id)
+    if version is None:
+        raise HTTPException(404, "保护区版本不存在")
+    check = _recheck(db, parcel, version)
+    # 现行版本同步快照
+    if version.valid_to is None:
+        for k in ("status", "qualified", "reason", "total_area_sqm", "inside_area_sqm",
+                  "outside_area_sqm", "outside_ratio", "centroid_inside", "shared_edge_m"):
+            setattr(parcel, k, getattr(check, k))
+        parcel.pa_version_id = version.id
+    db.commit()
+    db.refresh(check)
+    return check

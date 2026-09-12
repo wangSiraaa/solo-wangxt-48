@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
-from .routers import batches, certificates, inspections, parcels
+from .routers import batches, certificates, inspections, parcels, transitions
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(parcels.router)
 app.include_router(certificates.router)
 app.include_router(batches.router)
 app.include_router(inspections.router)
+app.include_router(transitions.router)
 
 
 @app.get("/health", tags=["系统"], summary="健康检查")

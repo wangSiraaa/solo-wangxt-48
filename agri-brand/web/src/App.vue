@@ -8,12 +8,12 @@
       </nav>
     </header>
 
-    <main class="main">
+    <main class="main" :class="{ wide: tab === 'transition' }">
       <section class="map-pane">
         <MapView :areas="areas" :parcels="parcels" :selected-code="selectedParcelCode" @select="onMapSelect" />
       </section>
 
-      <aside class="side">
+      <aside class="side" :class="{ full: tab === 'transition' }">
         <!-- 地块 -->
         <div v-if="tab === 'parcels'" class="tab-body">
           <div class="list">
@@ -48,7 +48,9 @@
             >
               <div class="card-top">
                 <b>{{ b.batch_no }}</b>
-                <span v-if="batchState(b).suspended" class="tag suspended">巡查暂停</span>
+                <span v-if="b.closed" class="tag" style="background:#607d8b">已关闭</span>
+                <span v-else-if="b.is_legacy" class="tag" style="background:#8d6e63">存量批次</span>
+                <span v-else-if="batchState(b).suspended" class="tag suspended">巡查暂停</span>
                 <span v-else-if="batchState(b).eligible" class="tag ok">可用标</span>
                 <span v-else class="tag bad">不可用标</span>
               </div>
@@ -68,23 +70,30 @@
           />
         </div>
 
+        <!-- 划界处置 -->
+        <div v-else-if="tab === 'transition'" class="tab-body transition-body">
+          <TransitionView ref="transitionView" @changed="loadAll" />
+        </div>
+
         <!-- 用标清单 -->
         <div v-else-if="tab === 'labels'" class="tab-body">
-          <h3>标签发到了哪些批次</h3>
+          <h3>标签发到了哪些批次（含调拨/使用/召回状态）</h3>
           <table class="grid">
-            <thead><tr><th>标签号段</th><th>批次</th><th>合作社</th><th>品种</th><th>数量</th><th>发放时间</th><th>经办人</th></tr></thead>
+            <thead><tr><th>标签号段</th><th>批次</th><th>合作社</th><th>品种</th><th>数量</th><th>已用/未用</th><th>状态</th><th>持有人</th><th>来源批</th></tr></thead>
             <tbody>
-              <tr v-for="l in labels" :key="l.id">
+              <tr v-for="l in segments" :key="l.id">
                 <td class="mono">{{ l.label_code }}</td>
                 <td><a href="#" @click.prevent="jumpBatch(l.batch_id)">{{ l.batch_no }}</a></td>
-                <td>{{ l.cooperative }}</td>
-                <td>{{ l.variety }}</td>
+                <td>{{ batchOf(l.batch_id)?.cooperative }}</td>
+                <td>{{ batchOf(l.batch_id)?.variety }}</td>
                 <td>{{ l.quantity }}</td>
-                <td class="muted">{{ l.issued_at?.slice(0,19).replace('T',' ') }}</td>
-                <td class="muted">{{ l.operator }}</td>
+                <td>{{ l.used_count }} / {{ l.quantity - l.used_count }}</td>
+                <td><span class="lstat" :class="'ls-' + l.status.toLowerCase()">{{ segText(l.status) }}</span></td>
+                <td class="muted">{{ l.holder || '—' }}</td>
+                <td class="muted">{{ l.source_batch_id ? batchNoOf(l.source_batch_id) : '—' }}</td>
               </tr>
             </tbody>
-            <tfoot><tr><td colspan="4">合计</td><td><b>{{ totalLabels }}</b></td><td colspan="2"></td></tr></tfoot>
+            <tfoot><tr><td colspan="4">合计段数 {{ segments.length }}，标签 {{ totalSegLabels }}</td><td colspan="5"></td></tr></tfoot>
           </table>
         </div>
 
@@ -111,11 +120,13 @@ import { computed, onMounted, ref } from 'vue'
 import MapView from './components/MapView.vue'
 import ParcelSubmit from './components/ParcelSubmit.vue'
 import BatchPanel from './components/BatchPanel.vue'
+import TransitionView from './components/TransitionView.vue'
 import { api, STATUS_COLOR, STATUS_TEXT } from './api'
 
 const tabs = [
   { key: 'parcels', label: '地块核查' },
   { key: 'batches', label: '批次与用标' },
+  { key: 'transition', label: '划界处置' },
   { key: 'labels', label: '用标清单' },
   { key: 'inspections', label: '异常巡查' },
 ]
@@ -126,26 +137,35 @@ const areas = ref([])
 const parcels = ref([])
 const batches = ref([])
 const labels = ref([])
+const segments = ref([])
 const inspections = ref([])
 const eligibilityCache = ref({})
 const selectedParcelCode = ref(null)
 const selectedBatch = ref(null)
 const batchPanel = ref(null)
+const transitionView = ref(null)
 
 const totalLabels = computed(() => labels.value.reduce((s, l) => s + l.quantity, 0))
+const totalSegLabels = computed(() => segments.value.reduce((s, l) => s + l.quantity, 0))
+
+const SEG_TEXT = { ISSUED: '在合作社', TRANSFERRED: '已调拨包装厂', USED: '已使用', RECALLED: '已召回' }
+const segText = (s) => SEG_TEXT[s] || s
+const batchOf = (id) => batches.value.find((b) => b.id === id)
+const batchNoOf = (id) => batchOf(id)?.batch_no || ('#' + id)
 
 function tagStyle(status) {
   return { background: STATUS_COLOR[status] || '#757575', color: '#fff' }
 }
 
 async function loadAll() {
-  const [a, p, b, l, e] = await Promise.all([
-    api.protectedAreas(), api.parcels(), api.batches(), api.labels(), api.inspections(),
+  const [a, p, b, l, sg, e] = await Promise.all([
+    api.protectedAreas(), api.parcels(), api.batches(), api.labels(), api.segments(), api.inspections(),
   ])
   areas.value = a
   parcels.value = p
   batches.value = b
   labels.value = l
+  segments.value = sg
   inspections.value = e
   // 预取各批次资格（供列表角标）
   const entries = await Promise.all(b.map(async (x) => [x.id, await api.eligibility(x.id)]))
@@ -213,6 +233,9 @@ body, html, #app { margin: 0; height: 100%; font-family: -apple-system, "PingFan
 .main { flex: 1; display: flex; min-height: 0; }
 .map-pane { flex: 1.6; min-width: 0; }
 .side { flex: 1; min-width: 380px; max-width: 560px; background: #f4f7fa; overflow-y: auto; padding: 12px; }
+.side.full { flex: 2; max-width: none; }
+.transition-body { height: 100%; }
+.transition-body > * { flex: 1; min-height: 0; }
 .tab-body { display: flex; flex-direction: column; gap: 12px; }
 h3 { margin: 0; font-size: 15px; }
 .list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
@@ -234,4 +257,9 @@ h3 { margin: 0; font-size: 15px; }
 .mono { font-family: ui-monospace, monospace; }
 tfoot td { background: #fafafa; }
 a { color: #1565c0; }
+.lstat { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #fff; white-space: nowrap; }
+.ls-issued { background: #607d8b; }
+.ls-transferred { background: #ef6c00; }
+.ls-used { background: #2e7d32; }
+.ls-recalled { background: #c62828; }
 </style>

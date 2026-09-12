@@ -43,9 +43,12 @@
         <tr>
           <td>用标额度</td>
           <td>
-            可追溯产量 <b>{{ elig.quota.traceable_output }}</b> 枚 ·
+            当前授权额度 <b>{{ elig.quota.current_quota ?? elig.quota.traceable_output }}</b> 枚 ·
+            可追溯产量 <span class="muted">{{ elig.quota.traceable_output }}</span> ·
             已发 <b>{{ elig.quota.labels_issued }}</b> 枚 ·
             剩余 <b :class="{ near: elig.quota.remaining <= 10 }">{{ elig.quota.remaining }}</b> 枚
+            <div v-if="elig.quota.current_quota && elig.quota.current_quota !== elig.quota.traceable_output"
+                 class="sub">重划界后新额度已替代旧额度（不叠加）</div>
             <div class="bar">
               <div class="bar-fill" :style="{ width: usedPct + '%' }"></div>
             </div>
@@ -66,11 +69,19 @@
       <div v-if="issueMsg" class="issue-msg" :class="issueOk ? 'ok' : 'no'">{{ issueMsg }}</div>
 
       <details class="labels" open>
-        <summary>本批次已发标签（{{ batchLabels.length }} 条，巡查暂停也保留）</summary>
+        <summary>本批次标签段（{{ batchLabels.length }} 条，巡查/处置期间记录均保留）</summary>
         <table>
           <tbody>
             <tr v-for="l in batchLabels" :key="l.id">
-              <td class="mono">{{ l.label_code }}</td><td>{{ l.quantity }} 枚</td><td class="muted">{{ l.issued_at?.slice(0,19).replace('T',' ') }}</td>
+              <td class="mono">{{ l.label_code }}</td>
+              <td>{{ l.quantity }} 枚</td>
+              <td>已用 {{ l.used_count }} / 未用 {{ l.quantity - l.used_count }}</td>
+              <td :title="l.holder">{{ SEG_TEXT[l.status] || l.status }}</td>
+              <td>
+                <button v-if="l.status === 'ISSUED'" class="mini" @click="doTransfer(l)">调拨</button>
+                <button v-if="(l.status === 'ISSUED' || l.status === 'TRANSFERRED') && l.quantity - l.used_count > 0"
+                        class="mini" @click="doUse(l)">使用</button>
+              </td>
             </tr>
             <tr v-if="!batchLabels.length"><td class="muted">暂无记录</td></tr>
           </tbody>
@@ -103,15 +114,33 @@ const issueOk = ref(false)
 const usedPct = computed(() => {
   if (!elig.value) return 0
   const q = elig.value.quota
-  return q.traceable_output ? Math.min(100, (q.labels_issued / q.traceable_output) * 100) : 0
+  const cap = q.current_quota ?? q.traceable_output
+  return cap ? Math.min(100, (q.labels_issued / cap) * 100) : 0
 })
+
+const SEG_TEXT = { ISSUED: '在合作社', TRANSFERRED: '已调拨包装厂', USED: '已使用', RECALLED: '已召回' }
+
+async function doTransfer(l) {
+  const party = prompt('调拨给哪家包装厂？（标签仍跟随本批次）', '雾岭镇包装厂')
+  if (!party) return
+  await api.transferLabel(l.id, { to_party: party })
+  await load()
+  emit('changed')
+}
+
+async function doUse(l) {
+  const n = Number(prompt(`登记使用数量（未使用 ${l.unused} 枚）：`, String(Math.min(1, l.unused))))
+  if (!n) return
+  await api.useLabel(l.id, n)
+  await load()
+}
 
 const activeInspection = computed(() => props.activeInspection)
 
 async function load() {
   if (!props.selected) { elig.value = null; return }
   elig.value = await api.eligibility(props.selected.id)
-  batchLabels.value = await api.labels(props.selected.id)
+  batchLabels.value = await api.segments(props.selected.id)
   issueMsg.value = ''
 }
 
@@ -184,4 +213,5 @@ input { border: 1px solid #cfd8dc; border-radius: 6px; padding: 6px 8px; font-si
 .labels td { padding: 2px 4px; font-size: 11px; }
 .mono { font-family: ui-monospace, monospace; }
 .inspect-actions { margin-top: 10px; display: flex; gap: 8px; }
+.mini { font-size: 11px; padding: 2px 8px; border-radius: 6px; border: 1px solid #b0bec5; background: #fff; cursor: pointer; margin-right: 4px; }
 </style>

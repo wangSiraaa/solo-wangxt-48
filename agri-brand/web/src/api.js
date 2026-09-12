@@ -23,15 +23,33 @@ export const api = {
   parcels: () => req('/parcels'),
   validateParcel: (body) => req('/parcels/validate', { method: 'POST', body }),
   createParcel: (body) => req('/parcels', { method: 'POST', body }),
+  parcelChecks: (id) => req(`/parcels/${id}/checks`),
+  recheck: (parcelId, versionId) => req(`/parcels/${parcelId}/recheck/${versionId}`, { method: 'POST' }),
   batches: () => req('/batches'),
   eligibility: (id) => req(`/batches/${id}/eligibility`),
   issueLabels: (id, quantity, operator) =>
     req(`/batches/${id}/issue-labels`, { method: 'POST', body: { quantity, operator } }),
   labels: (batchId) => req('/labels' + (batchId ? `?batch_id=${batchId}` : '')),
+  segments: (batchId) => req('/label-segments' + (batchId ? `?batch_id=${batchId}` : '')),
+  transferLabel: (id, body) => req(`/labels/${id}/transfer`, { method: 'POST', body }),
+  useLabel: (id, used, operator) => req(`/labels/${id}/use`, { method: 'POST', body: { used, operator } }),
+  recallLabels: (labelIds, operator, note) =>
+    req('/labels/recall', { method: 'POST', body: { label_ids: labelIds, operator, note } }),
+  splitBatch: (body) => req('/batches/split', { method: 'POST', body }),
+  mergeBatches: (body) => req('/batches/merge', { method: 'POST', body }),
   inspections: (activeOnly = false) => req('/inspections' + (activeOnly ? '?active_only=true' : '')),
   createInspection: (body) => req('/inspections', { method: 'POST', body }),
   resolveInspection: (id, note) =>
     req(`/inspections/${id}/resolve`, { method: 'POST', body: { note } }),
+  transitionRules: () => req('/transition-rules'),
+  candidates: (ruleId) => req(`/rules/${ruleId}/candidates?only_affected=false`),
+  makeDraft: (ruleId, batchId) => req(`/rules/${ruleId}/drafts/${batchId}`, { method: 'POST' }),
+  drafts: () => req('/dispositions'),
+  confirmDraft: (id, actions, note, operator) =>
+    req(`/dispositions/${id}/confirm`, { method: 'POST', body: { actions, note, operator } }),
+  revokeDraft: (id, note, operator) =>
+    req(`/dispositions/${id}/revoke`, { method: 'POST', body: { note, operator } }),
+  draftActions: (id) => req(`/dispositions/${id}/actions`),
 }
 
 export const STATUS_TEXT = {

@@ -167,6 +167,8 @@ def test_cooperative_level_inspection_suspends_batches(client):
     assert r.status_code == 409 and r.json()["detail"]["code"] == "suspended"
     # 历史标签仍可查
     assert len(client.get("/labels").json()) > 0
+    # 解除事件，避免合作社级暂停污染后续测试
+    client.post(f"/inspections/{ev.json()['id']}/resolve", json={"note": "用例清理：解除合作社级暂停"})
 
 
 def test_invalid_quantity_rejected(client):

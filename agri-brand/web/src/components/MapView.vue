@@ -3,8 +3,9 @@
     <div ref="el" class="map"></div>
     <div class="map-legend">
       <div class="lg-title">图例（底图 © OpenStreetMap）</div>
-      <div><span class="sw" :style="{ background: 'rgba(21,101,192,.12)', border: '2px dashed #1565c0' }"></span>现行保护区 2023-v2</div>
-      <div><span class="sw" :style="{ background: 'rgba(239,108,0,.07)', border: '2px dashed #ef6c00' }"></span>历史版本 2015-v1</div>
+      <div><span class="sw" :style="{ background: 'rgba(21,101,192,.12)', border: '2px dashed #1565c0' }"></span>现行保护区 2026-v3</div>
+      <div><span class="sw" :style="{ background: 'rgba(239,108,0,.07)', border: '2px dashed #ef6c00' }"></span>历史版本 2023-v2</div>
+      <div><span class="sw" :style="{ background: 'rgba(142,36,170,.07)', border: '2px dashed #8e24aa' }"></span>历史版本 2015-v1</div>
       <div><span class="sw" :style="{ background: '#2e7d32' }"></span>全部在范围内</div>
       <div><span class="sw" :style="{ background: '#1565c0' }"></span>边界贴合（容差内）</div>
       <div><span class="sw" :style="{ background: '#c62828' }"></span>跨边界超容差</div>
@@ -70,15 +71,16 @@ function renderData() {
     if (map.getSource(id)) map.removeSource(id)
   }
 
-  const oldAreas = props.areas.filter((a) => a.valid_to)
+  const oldAreas = props.areas.filter((a) => a.valid_to).sort((a, b) => a.version.localeCompare(b.version))
   const curAreas = props.areas.filter((a) => !a.valid_to)
 
   map.addSource('pa-old-fill', { type: 'geojson', data: fc(oldAreas.map((a) => feat(a.geometry, { v: a.version }))) })
   map.addLayer({ id: 'pa-old-fill', type: 'fill', source: 'pa-old-fill',
-    paint: { 'fill-color': '#ef6c00', 'fill-opacity': 0.07 } })
-  map.addSource('pa-old-line', { type: 'geojson', data: fc(oldAreas.map((a) => feat(a.geometry))) })
+    paint: { 'fill-color': ['match', ['get', 'v'], '2023-v2', '#ef6c00', '#8e24aa'], 'fill-opacity': 0.06 } })
+  map.addSource('pa-old-line', { type: 'geojson', data: fc(oldAreas.map((a) => feat(a.geometry, { v: a.version }))) })
   map.addLayer({ id: 'pa-old-line', type: 'line', source: 'pa-old-line',
-    paint: { 'line-color': '#ef6c00', 'line-width': 2, 'line-dasharray': [3, 2] } })
+    paint: { 'line-color': ['match', ['get', 'v'], '2023-v2', '#ef6c00', '#8e24aa'],
+             'line-width': 2, 'line-dasharray': [3, 2] } })
 
   map.addSource('pa-fill', { type: 'geojson', data: fc(curAreas.map((a) => feat(a.geometry))) })
   map.addLayer({ id: 'pa-fill', type: 'fill', source: 'pa-fill',
