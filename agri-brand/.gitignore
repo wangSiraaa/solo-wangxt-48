@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+agri_brand.db
+agri_brand.db-wal
+agri_brand.db-shm
+.pytest_cache/
+web/node_modules/
+web/dist/
+
+# Local credentials and connection settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*.credentials
+credentials.*
+secrets.*
+token.*
